@@ -1,0 +1,271 @@
+Clustering (using docker on Linux)
+
+INSTALL DOCKER INSIDE WSL
+
+
+commands : 
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+Installs latest Docker inside Linux
+Required to run containerised MySQL nodes
+
+
+START DOCKER SERVICE
+command:
+sudo service docker start
+
+
+CREATE DOCKER NETWORK
+command:
+docker network create innodbnet
+Creates internal cluster network
+All MySQL containers will live inside this network
+
+
+RUN THREE MYSQL SERVER CONTAINERS
+command:
+for N in 1 2 3; do
+docker run -d --name=mysql$N --hostname=mysql$N --net=innodbnet \
+-e MYSQL_ROOT_PASSWORD=innodb mysql/mysql-server:8.0
+done
+
+Creates 3 isolated MySQL servers
+All with same root password innodb
+
+
+CREATE CLUSTER ADMIN USER IN ALL SERVERS
+command:
+for N in 1 2 3; do
+docker exec mysql$N mysql -uroot -pinnodb \
+-e "CREATE USER IF NOT EXISTS 'clusteradmin'@'%' IDENTIFIED BY 'admin'; \
+GRANT ALL PRIVILEGES ON *.* TO 'clusteradmin'@'%' WITH GRANT OPTION; \
+RESET MASTER;"
+done
+
+Creates user required for Group Replication
+Resets GTID history
+
+
+CONNECT TO FIRST NODE USING MYSQL SHELL
+docker exec -it mysql1 mysqlsh clusteradmin@mysql1:3306 -padmin
+
+
+CREATE CLUSTER
+
+Inside mysqlsh:
+var x = dba.createCluster("mycluster")
+This initializes FIRST node as cluster PRIMARY
+
+if while creating cluster we get error like ->
+Instance is not ready to be used in an InnoDB Cluster
+Missing GTID
+Binary logging disabled
+Super_read_only not set properly
+then use 
+✅ dba.checkInstanceConfiguration("clusteradmin@mysql1:3306")
+✅ dba.configureInstance("clusteradmin@mysql1:3306")
+restart the server like it will ask to start or not then press yes
+
+reconnect again:
+ mysqlsh clusteradmin@mysql1:3306 -padmin
+
+
+CREATE CLUSTER
+var x = dba.createCluster("mycluster")
+
+
+💥 NOW IT CREATES CLEANLY
+✔ No GTID errors
+✔ No replication failures
+
+REPEAT FOR ALL OTHER INSTANCES BEFORE ADDING THEM
+For mysql2:
+dba.checkInstanceConfiguration("clusteradmin@mysql2:3306")
+dba.configureInstance("clusteradmin@mysql2:3306")
+
+For mysql3:
+dba.checkInstanceConfiguration("clusteradmin@mysql3:3306")
+dba.configureInstance("clusteradmin@mysql3:3306")
+
+
+AFTER CONFIGURING ALL NODES
+THEN add them to cluster:
+x.addInstance("clusteradmin@mysql2:3306")
+x.addInstance("clusteradmin@mysql3:3306")
+
+
+After adding all instances:
+x.checkInstanceState()
+
+
+
+IF I WANT TO ADD 4th node to the cluster then 
+STEP-1 — RUN THE CONTAINER
+
+docker run -d --name=mysql4 --hostname=mysql4 --net=innodbnet \
+-e MYSQL_ROOT_PASSWORD=innodb mysql/mysql-server:8.0
+👉 At this moment, mysql4 is NOT cluster-ready
+
+STEP-2 — CREATE CLUSTERADMIN USER ON mysql4
+docker exec mysql4 mysql -uroot -pinnodb \
+-e "CREATE USER IF NOT EXISTS 'clusteradmin'@'%' IDENTIFIED BY 'admin'; \
+GRANT ALL PRIVILEGES ON *.* TO 'clusteradmin'@'%' WITH GRANT OPTION;"
+
+STEP-3 — RESET GTID HISTORY
+⚠ REQUIRED FOR CLONE RECOVERY
+docker exec mysql4 mysql -uroot -pinnodb -e "RESET MASTER;"
+
+
+STEP-4 — CHECK INSTANCE CONFIGURATION
+Enter mysqlsh on any cluster node:
+docker exec -it mysql1 mysqlsh
+
+Then run:
+dba.checkInstanceConfiguration("clusteradmin@mysql4:3306")
+
+
+STEP-5 — FIX THE INSTANCE
+dba.configureInstance("clusteradmin@mysql4:3306")
+It will ask:
+➡ Restart MySQL now?
+👉 TYPE YES
+💥 mysql4 restarts INSIDE the container
+
+STEP-6 — RECONNECT & ADD TO CLUSTER
+Back inside mysqlsh:
+
+var x = dba.getCluster()
+x.addInstance("clusteradmin@mysql4:3306")
+OPTIONAL — MAKE IT A READ-ONLY REPLICA ONLY
+You can lock it:
+x.setInstanceOption("clusteradmin@mysql4:3306", "readOnly", "ON")
+
+
+
+ROUTER DEPLYMENT
+code : 
+docker run -d --name mysql-router --net=innodbnet \
+-e MYSQL_HOST=mysql1 \
+-e MYSQL_PORT=3306 \
+-e MYSQL_USER=clusteradmin \
+-e MYSQL_PASSWORD=admin \
+-e MYSQL_INNODB_CLUSTER_MEMBERS=4 \
+-p 6446-6449:6446-6449 \
+mysql/mysql-router:8.0
+
+description:
+✔ Detects cluster
+✔ Boots routing config
+✔ Opens:
+Purpose	Port
+READ/WRITE Primary	6446
+READ ONLY secondaries	6447
+X Protocol RW	6448
+X Protocol RO	6449
+
+
+Check logs:
+docker logs mysql-router
+
+
+CONNECT THROUGH ROUTER
+WRITE port:
+docker exec -it mysql-router mysql -h mysql-router -P 6446 -u clusteradmin -padmin -e "SELECT @@hostname;"
+READ ONLY port:
+docker exec -it mysql-router mysql -h mysql-router -P 6447 -u clusteradmin -padmin -e "SELECT @@hostname;"
+
+
+
+CREATE TEST DATABASE
+docker exec -it mysql-router mysql -h mysql-router -P 6446 -u clusteradmin -padmin \
+-e "CREATE DATABASE school; USE school; CREATE TABLE student(id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50)); INSERT INTO student(name) VALUES('Aakash'),('Sky'),('Krishna'); SELECT * FROM student;"
+
+
+
+FAILOVER TEST
+STOP PRIMARY:
+docker stop mysql1
+
+
+Cluster status:
+docker exec -it mysql-router mysql -h mysql-router -P 6446 -u clusteradmin -padmin -e "SELECT @@hostname;"
+
+
+
+AUTO REJOIN
+docker start mysql1
+sleep 5
+x.status()
+
+
+LIVE FAILOVER WATCH
+watch -n1 "docker exec mysql-router mysql -uclusteradmin -padmin -h mysql-router -P 6446 -e 'SELECT @@hostname;'"
+
+we have now 
+✔ Self-healing 3-node InnoDB Cluster
+✔ MySQL Router with RW + RO split
+✔ Auto failover & rejoin
+✔ Tested replication + topology
+✔ Fully dockerised production-grade environment
+
+
+if want to add a new node to the cluster
+STEP 1️— RUN NEW MYSQL CONTAINER
+Example: mysql5
+
+docker run -d --name=mysql5 --hostname=mysql5 --net=innodbnet \
+-e MYSQL_ROOT_PASSWORD=innodb mysql/mysql-server:8.0
+
+STEP 2️— CREATE CLUSTER ADMIN USER ON NEW NODE
+docker exec mysql5 mysql -uroot -pinnodb \
+-e "CREATE USER IF NOT EXISTS 'clusteradmin'@'%' IDENTIFIED BY 'admin'; \
+GRANT ALL PRIVILEGES ON *.* TO 'clusteradmin'@'%' WITH GRANT OPTION;"
+
+
+STEP 3️— RESET GTID HISTORY
+VERY IMPORTANT
+Otherwise → replication crash 💥
+docker exec mysql5 mysql -uroot -pinnodb -e "RESET MASTER;"
+
+
+STEP 4️— CHECK INSTANCE
+Enter shell:
+docker exec -it mysql1 mysqlsh
+Run:
+dba.checkInstanceConfiguration("clusteradmin@mysql5:3306")
+
+
+Expect errors like:
+
+❌ GTID disabled
+❌ Binary log not configured
+
+THIS IS NORMAL BEFORE CONFIG
+
+
+
+STEP 5️— CONFIGURE INSTANCE
+dba.configureInstance("clusteradmin@mysql5:3306")
+MySQL will box:
+Do you want to restart the instance? [Y]
+Type YES
+
+
+
+STEP 6 — ADD NODE TO CLUSTER
+
+Reconnect to cluster admin shell:
+
+var x = dba.getCluster()
+x.addInstance("clusteradmin@mysql5:3306")
+
+
+You will see:
+
+NOTE: clone provisioning may be needed…
+SUCCESS: instance added
+x.status()
+
+
+
+

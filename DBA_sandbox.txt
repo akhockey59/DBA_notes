@@ -1,0 +1,266 @@
+Clustering with sandboxes on windows
+
+go to mysqlshell (mysqlsh)
+Deploy New Sandbox Instances
+code:
+dba.deploySandboxInstance("3310")
+dba.deploySandboxInstance("3320")
+dba.deploySandboxInstance("3330")
+dba.deploySandboxInstance("3340")
+✔ All instances deployed successfully
+✔ All used same root password
+✔ All running on localhost inside your user directory
+
+
+
+\connect to main or primary node want to make
+\connect root@localhost:3310
+var x = dba.createCluster("mycluster")
+✔ This created the primary cluster node.
+✔ Status showed cluster NOT tolerant yet.
+
+
+
+Add Remaining Nodes to the Cluster
+Added remaining sandbox instances:
+
+x.addInstance("root@localhost:3320")
+x.addInstance("root@localhost:3330")
+x.addInstance("root@localhost:3340")
+
+if error comes run 
+x.checkInstanceConfiguration("")
+x.configureInstance("")
+
+Verified Cluster Health
+x.status()
+
+open new command prompt 
+Bootstrap MySQL Router
+Executed on Windows:
+mysqlrouter --bootstrap root@localhost:3310 -d %HOMEPATH%\mysql-router
+✔ Router config generated
+✔ Ports assigned:
+Classic protocol
+R/W → 6446
+R/O → 6447 
+X protocol
+R/W → 6448
+R/O → 6449
+
+ Started Router
+start "" /B "C:\Program Files\MySQL\MySQL Router 8.0\bin\mysqlrouter.exe" ^
+    -c "%HOMEPATH%\mysql-router\mysqlrouter.conf"
+✔ Router started in background
+
+
+Connected Through Router
+Connected to R/W router port:
+mysqlsh root@localhost:6446
+Verified:
+x = dba.getCluster()
+x.status()
+
+
+Tested HA + Automatic Failover
+✔ Killed primary node:
+dba.killSandboxInstance(3310)
+✔ Router automatically routed next connection to 3320
+SELECT @@port;
+-- returned 3320
+
+
+
+✔ Cluster showed node 3310 as MISSING
+✔ Restarted node:
+dba.startSandboxInstance(3310)
+✔ Node rejoined as SECONDARY
+✔ Cluster became healthy again
+
+
+
+Tested Database Replication Through Router
+Connected:
+mysqlsh root@localhost:6446
+Created DB + table:
+
+create database school;
+use school;
+create table students(id int primary key, name varchar(50));
+insert into students values
+  (1,'Aakash'), (2,'Krishna'), (3,'RouterTest');
+
+
+✔ Replicated instantly to all nodes
+✔ Verified via read-only port (6447)
+
+
+After single clustering we can create multiple 
+clusters with multiple cluster and nodes so if a
+complete cluster gets corrupted then we can switch it to another
+cluster for the time being.
+Multi-Clustering (DR Site), ClusterSet & Full Failover Notes
+ 
+ 
+Create DR Sandbox Cluster (Replica Site)
+Deploy second-site sandbox instances:
+
+dba.deploySandboxInstance("3410")
+dba.deploySandboxInstance("3420")
+dba.deploySandboxInstance("3430")
+✔ These will become mycluster2 (DR cluster).
+✔ Use same root password.
+
+
+
+Convert Single Cluster into a ClusterSet (Global HA/DR)
+Connected to PRIMARY site:
+var x = dba.getCluster()
+var cs = x.createClusterSet("globalcs")
+
+✔ Now ClusterSet exists with 1 primary cluster (mycluster)
+✔ We still need to add the DR cluster.
+
+
+
+Create DR Cluster (mycluster2) inside ClusterSet
+Run:
+cs.createReplicaCluster("root@localhost:3410", "mycluster2")
+
+✔ Automatically cloned data from PRIMARY
+✔ Created mycluster2 with PRIMARY at 3410
+
+
+
+Then add other DR nodes:
+var r = dba.getCluster("mycluster2")
+r.addInstance("root@localhost:3420")
+r.addInstance("root@localhost:3430")
+
+Check DR cluster:
+r.status()
+
+
+Verify Complete ClusterSet Health
+var cs = dba.getClusterSet()
+cs.status()
+Expected:
+mycluster = PRIMARY
+mycluster2 = REPLICA
+Status = HEALTHY
+
+now for testing API with which we will create a server.js file using node.js
+and we will run it and test its api 
+http://localhost:3000/students 
+for get post put delete
+while checking it for multiple failovers
+
+
+
+
+Test 1 — Kill PRIMARY node of Site-A (3310)
+dba.killSandboxInstance(3310)
+Check cluster:
+x.status()
+✔ 3320 became PRIMARY
+✔ Router continued routing
+✔ API still worked
+
+
+Test 2 — Kill Entire Primary Cluster (3310–3340)
+Simulating Full Data Center Outage 🔥🔥🔥
+dba.killSandboxInstance(3310)
+dba.killSandboxInstance(3320)
+dba.killSandboxInstance(3330)
+dba.killSandboxInstance(3340)
+Check status:
+cs.status()
+Shows PRIMARY unreachable.
+
+
+
+Promote DR Cluster to Global PRIMARY
+cs.forcePrimaryCluster("mycluster2")
+Expected:
+mycluster2 becomes PRIMARY
+mycluster marked as INVALIDATED
+Router starts routing to 3410
+✔ API still works
+✔ Inserts/updates succeed
+✔ Zero outage except failover time (< 1 sec)
+
+🔁 Recovery of Old Primary Cluster
+Bring Site-A Back Online
+
+Start all old nodes:
+
+dba.startSandboxInstance(3310)
+dba.startSandboxInstance(3320)
+dba.startSandboxInstance(3330)
+dba.startSandboxInstance(3340)
+
+Reboot Invalidated Cluster
+
+Connect to one node:
+
+\connect root@localhost:3310
+dba.rebootClusterFromCompleteOutage()
+
+
+✔ mycluster restored
+✔ Only 3330 becomes PRIMARY (highest GTID)
+
+Rejoin Recovered Cluster back to ClusterSet
+
+From global current PRIMARY (3410):
+
+\connect root@localhost:3410
+var cs = dba.getClusterSet()
+cs.rejoinCluster("mycluster")
+
+🔄 Switching Primary Back to Site-A
+
+Once rejoined:
+
+cs.setPrimaryCluster("mycluster")
+
+
+✔ mycluster promoted
+✔ mycluster2 becomes REPLICA
+✔ All replication channels updated
+✔ Router automatically switches back
+
+🧪 Final Verification
+Primary cluster status
+x = dba.getCluster("mycluster")
+x.status()
+
+ClusterSet status
+cs.status()
+
+API test
+
+Perform:
+
+POST /students
+
+GET /students
+
+✔ Should work
+✔ Should be replicated to DR cluster
+✔ Shows full HA + DR resilience
+
+🧱 Summary of What You Accomplished
+
+You built a complete enterprise-grade HA + DR MySQL architecture:
+
+✔ 4-node Primary InnoDB Cluster
+✔ 3-node DR Cluster
+✔ ClusterSet controlling global topology
+✔ Automatic failover inside each cluster
+✔ Disaster failover across datacenters
+✔ Transparent routing using MySQL Router
+✔ Application continuity without config changes
+✔ Full recovery + reintegration + re-promotion of old primary
+
+This is EXACTLY how real banks, stock exchanges, hospitals & fintech run MySQL.

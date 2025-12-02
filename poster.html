@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poster - Hybrid Audio Fingerprinting</title>
+    <style>
+        :root {
+            --primary-color: #003366; /* Academic Blue */
+            --secondary-color: #f0f4f8;
+            --accent-color: #e63946;
+            --text-color: #333;
+            --poster-width: 1000px; /* Base width for scaling */
+            /* A-series aspect ratio is 1:1.414 */
+            --poster-height: calc(var(--poster-width) * 1.414); 
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #555;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* The Poster Container */
+        .poster-container {
+            width: var(--poster-width);
+            height: var(--poster-height);
+            background-color: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            padding: 25px; 
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 15px; 
+            overflow: hidden; 
+        }
+
+        /* Header Section */
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 15px; 
+            border-radius: 8px;
+            text-align: center;
+            border-bottom: 5px solid var(--accent-color);
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2.6em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            line-height: 1.1;
+        }
+
+        header .authors {
+            font-size: 1.3em;
+            margin-top: 8px;
+            font-weight: bold;
+        }
+
+        header .affiliation {
+            font-size: 1.1em;
+            font-style: italic;
+            opacity: 0.9;
+        }
+
+        header .paper-id {
+            margin-top: 8px;
+            font-size: 0.9em;
+            background: rgba(255,255,255,0.2);
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 4px;
+        }
+
+        /* Main Grid Layout */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr; 
+            gap: 20px;
+            flex-grow: 1;
+            overflow: hidden; 
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* Section Styling */
+        section {
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 10px 12px; /* Slightly reduced vertical padding */
+        }
+
+        h2 {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 3px;
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 1.35em;
+        }
+
+        p, li {
+            font-size: 0.92em; 
+            line-height: 1.35;
+            color: var(--text-color);
+            text-align: justify;
+            margin-bottom: 6px;
+            margin-top: 0;
+        }
+
+        ul, ol {
+            padding-left: 20px;
+            margin-top: 5px;
+            margin-bottom: 5px;
+        }
+
+        /* Highlight Box */
+        .highlight-box {
+            background-color: var(--secondary-color);
+            padding: 8px;
+            border-left: 4px solid var(--accent-color);
+            margin: 8px 0;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        /* Diagram Placeholder styling */
+        .figure-placeholder {
+            width: 100%;
+            background-color: #eee;
+            border: 2px dashed #999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #666;
+            margin: 8px 0;
+            text-align: center;
+            font-size: 0.9em;
+            position: relative;
+        }
+        
+        .figure-caption {
+            font-size: 0.85em;
+            color: #666;
+            text-align: center;
+            font-style: italic;
+            margin-bottom: 8px;
+        }
+
+        /* Simple CSS Bar Chart */
+        .chart-container {
+            margin-top: 10px;
+        }
+        .bar-group {
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+        }
+        .bar-label {
+            width: 80px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .bar-wrapper {
+            flex-grow: 1;
+            background: #eee;
+            height: 18px;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar {
+            height: 100%;
+            background-color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 5px;
+            color: white;
+            font-size: 0.75em;
+        }
+        .bar.sota {
+            background-color: #888;
+        }
+
+        /* Table Styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85em;
+            margin-top: 8px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 5px;
+            text-align: center;
+        }
+        th {
+            background-color: var(--secondary-color);
+            color: var(--primary-color);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            font-size: 0.8em;
+            color: #666;
+            border-top: 1px solid #ccc;
+            padding-top: 8px;
+            flex-shrink: 0;
+        }
+
+        /* Print Settings */
+        @media print {
+            body {
+                background: none;
+                padding: 0;
+                margin: 0;
+            }
+            .poster-container {
+                width: 100%;
+                height: 100%;
+                box-shadow: none;
+                border: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="poster-container">
+        <!-- Header -->
+        <header>
+            <h1>Hybrid Audio Fingerprinting of Human Voice Under Distortion</h1>
+            <div class="authors">Aakash, Bittu Kumari, Anjali Diwan</div>
+            <div class="affiliation">Marwadi University, Rajkot, India</div>
+            <div class="paper-id">Paper ID: 338 </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="content-grid">
+            
+            <!-- Left Column -->
+            <div class="column">
+                
+                <section>
+                    <h2>1. Introduction</h2>
+                    <p><strong>The Problem:</strong> Existing fingerprinting tools (like Shazam) are optimized for music and struggle with <strong>human speech</strong>, especially under real-world distortions like background noise, clipping, and gain variation.</p>
+                    <p><strong>Objective:</strong> To develop a lightweight, scalable framework specifically for human voice that remains robust under acoustic degradation.</p>
+                    <div class="highlight-box">
+                        Innovation: A Hybrid approach combining Peak-Based Hashing (Anchors) with Spectral Embeddings.
+                    </div>
+                </section>
+
+             <section>
+    <h2>2. Methodology</h2>
+    <p>The proposed system utilizes a 6-stage pipeline optimized for the voice frequency range (300Hz–8000Hz).</p>
+    
+    <!-- Figure 1: System Pipeline Diagram -->
+    <div style="background: white; border: 2px solid #ddd; padding: 10px; margin: 15px 0; border-radius: 8px;">
+        <img src="image.png" alt="System Pipeline Diagram" style="width: 100%; height: auto; display: block;">
+    </div>
+    <div class="figure-caption">Fig 1: Overview of the complete processing pipeline.</div>
+
+    <ul>
+        <li><strong>Pre-processing:</strong> Bandpass filtering and Amplitude Normalization.</li>
+        <li><strong>Spectrogram Analysis:</strong> STFT with Hann window converted to Log-dB scale.</li>
+        <li><strong>Peak Detection:</strong> 2D maximum filter to find local energy maxima (Peaks).</li>
+        <li><strong>Fingerprint Hashing:</strong> Uses <em>Anchor-Target</em> pairing (Fig 3) to create SHA-1 hashes from frequency and time deltas.</li>
+    </ul>
+    
+    <!-- Figure 3: Anchor-Target Pairing -->
+    <div style="background: white; border: 2px solid #ddd; padding: 10px; margin: 15px 0; border-radius: 8px;">
+        <img src="image copy.png" alt="Anchor-Target Pairing" style="width: 100%; height: auto; display: block;">
+    </div>
+    
+    <p><strong>Hybrid Embedding:</strong> To handle severe distortion, we extract a feature vector: <em>[ZCR, Centroid, Bandwidth, Rolloff, Flatness]</em>.</p>
+</section>
+
+
+            </div>
+
+            <!-- Right Column -->
+            <div class="column">
+                
+                <!-- Moved Matching Algorithm Here -->
+                <section>
+                    <h2>3. Matching Algorithm</h2>
+                    <p>The matching score is a composite of two distinct metrics to ensure high reliability:</p>
+                    <ol>
+                        <li><strong>Hash Set Intersection:</strong> Primary fast lookup score. It finds candidates with the highest number of matching time-frequency hash codes.</li>
+                        <li><strong>Euclidean Distance:</strong> Secondary check using the spectral embedding vector. This "saves" the match if distortion has shifted the spectral peaks but maintained the general shape.</li>
+                    </ol>
+                </section>
+
+                <section>
+                    <h2>4. Experimental Results</h2>
+                    <p>We compared our method against State-of-the-Art (SOTA) [Kamuni et al., 2024] using <strong>Distorted Audio</strong>.</p>
+                    
+                    <div class="chart-container">
+                        <div class="bar-group">
+                            <div class="bar-label">1 Sec</div>
+                            <div class="bar-wrapper">
+                                <div class="bar sota" style="width: 68%;">68.8% (SOTA)</div>
+                                <div class="bar" style="width: 75.5%; position: absolute; top:0; opacity: 0.8; background: var(--accent-color);">75.5% (Ours)</div>
+                            </div>
+                        </div>
+                        <div class="bar-group">
+                            <div class="bar-label">3 Sec</div>
+                            <div class="bar-wrapper">
+                                <div class="bar sota" style="width: 93%;">93.3% (SOTA)</div>
+                                <div class="bar" style="width: 91.1%; position: absolute; top:0; opacity: 0.8; background: var(--accent-color);">91.1% (Ours)</div>
+                            </div>
+                        </div>
+                        <div class="bar-group">
+                            <div class="bar-label">6 Sec</div>
+                            <div class="bar-wrapper">
+                                <div class="bar sota" style="width: 99%;">99.1% (SOTA)</div>
+                                <div class="bar" style="width: 98.1%; position: absolute; top:0; opacity: 0.8; background: var(--accent-color);">98.1% (Ours)</div>
+                            </div>
+                        </div>
+                    </div>
+                    <p style="font-size: 0.8em; text-align: center; margin-top: 5px;"><em>Fig 2: Accuracy Comparison on Distorted Samples</em></p>
+
+                    <h3>Robustness Comparison</h3>
+                    <table>
+                        <tr>
+                            <th>Method</th>
+                            <th>Accuracy (Distorted)</th>
+                        </tr>
+                        <tr>
+                            <td>Zahid et al. (2020)</td>
+                            <td>79.9%</td>
+                        </tr>
+                        <tr>
+                            <td>Tarun et al. (2022)</td>
+                            <td>86.0%</td>
+                        </tr>
+                        <tr style="font-weight: bold; background-color: #e6f2ff;">
+                            <td>Proposed Method</td>
+                            <td>98.12%</td>
+                        </tr>
+                    </table>
+                </section>
+
+                <section>
+                    <h2>5. Conclusion</h2>
+                    <ul>
+                        <li><strong>High Accuracy:</strong> Achieved <strong>98.12%</strong> on distorted audio samples.</li>
+                        <li><strong>Robustness:</strong> Successfully handles clipping, noise, and gain changes better than music-focused algorithms.</li>
+                        <li><strong>Application:</strong> Ideal for real-time media verification and audio forensics.</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h2>6. References</h2>
+                    <ul style="font-size: 0.8em;">
+    <li>[1] Kamuni, N. et al. (2024). <em>Advancing audio fingerprinting accuracy with AI and ML: Addressing background noise and distortion challenges.</em> ICSC, pp. 341-345.</li>
+    <li>[2] Mehmood, Z. et al. (2020). <em>Potential barriers to music fingerprinting algorithms in the presence of background noise.</em> CDMA, pp. 25-30.</li>
+    <li>[3] Yadav, T. et al. (2022). <em>Real time audio synchronization using audio fingerprinting techniques.</em> PCEMS, pp. 16-20.</li>
+    <li>[4] Yan, R. et al. (2022). <em>Audio deepfake detection system with neural stitching for ADD 2022.</em> ICASSP, pp. 9226-9230.</li>
+    <li>[5] Keum, J., Lee, H.S. (2005). <em>Speaker change detection based on spectral peak track analysis for Korean broadcast news.</em> ICICS, pp. 724-728.</li>
+</ul>
+                </section>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

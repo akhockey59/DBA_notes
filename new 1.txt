@@ -1,0 +1,57 @@
+Data Dumping and before queries
+
+start with on mysqlsh server
+
+SELECT VERSION();
+
+Check the server size + available disk space
+
+SELECT table_schema, 
+       ROUND(SUM(data_length + index_length)/1024/1024,2) AS mb
+FROM information_schema.tables 
+GROUP BY table_schema;
+
+
+Check if server uses GTID
+SHOW VARIABLES LIKE 'gtid_mode';
+
+
+Check for running writes
+SHOW GLOBAL STATUS LIKE 'Com_insert';
+SHOW GLOBAL STATUS LIKE 'Com_update';
+SHOW GLOBAL STATUS LIKE 'Com_delete';
+
+
+Check if any long-running queries are active
+SHOW PROCESSLIST;
+
+
+Check server role
+Is it:
+Primary in a cluster?
+Secondary in replication?
+Standalone?
+
+SHOW SLAVE STATUS\G
+
+
+Check RAM + CPU before deciding thread count
+Get-WmiObject Win32_Processor | Select-Object NumberOfLogicalProcessors
+
+
+Check whether the server has large binary logs
+
+SHOW BINARY LOGS;
+
+
+lets start dumping 
+util.dumpInstance(
+  "C:\\mysql_backups\\dump17gb",
+  {
+    threads: 8,
+    bytesPerChunk: "128M",
+    compatibility: ["strip_restricted_grants"],
+    showProgress: true
+  }
+);
+

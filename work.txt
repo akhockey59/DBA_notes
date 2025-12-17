@@ -1,0 +1,177 @@
+KPI:
+	1. DB Manage. ( Opmized, Duplicate indexing, Load testing - slow query: optimized)
+	2. Innodb clustering.
+		- Positive and Negative.
+		- DB Size 90 GB.
+		- if cluster fails, How to recover.
+		- 3 server, 3 db. cluster.
+	3. DB Schema Analyse and ready to Reports.  - GUI Access
+	4. Heavy Tables. ( Everyday scheme monitor, performance issue).
+
+Application:
+	2. SavMoney:
+	
+	
+	
+	
+
+KPI 
+	1. Database management:
+so start with scanning the structure of table:
+	-> show full columns from tblmcity;
+	-> SHOW INDEX FROM tblmcity;
+step 1 — Find the Primary Key (PK)
+Is it INT/BIGINT?
+→ Good.
+Is it auto_increment?
+→ Good.
+Does the table actually need a PK?
+→ Every table should have one.
+
+
+If no proper PK → performance issues.
+
+
+
+step 2
+after this if there is no primary key or even there is look for foreign key now:
+Foreign keys usually end with id, like:
+cityid
+stateid
+staffid
+clientid
+productid
+partnerid
+Even if the table does not have real FK constraints, you will KNOW these are used in JOINs.
+
+
+step 3 
+Identify Searchable Columns
+Look for columns like:
+name
+email
+mobile
+status
+type
+code
+date columns
+
+ask a question if it "Will an API or UI screen search/filter by this column?" if yes then indexing needed
+
+
+step 4 
+Identify High-Cardinality vs Low-Cardinality Columns
+This is VERY important.
+High-cardinality = many unique values
+Examples:
+name
+email
+cityid
+staffid
+timestamps
+These are good leading columns for indexes.
+
+
+Low-cardinality = few unique values
+Examples:
+is_delete (0/1)
+status (“active/inactive”)
+gender
+tinyint flags
+
+command for checking foreign keys in the table
+SELECT table_name, column_name,  referenced_table_name, referenced_column_name
+ FROM information_schema.KEY_COLUMN_USAGE WHERE table_schema = 'database_name'
+ AND table_name = 'table_name' AND referenced_table_name IS NOT NULL;
+ 
+ 
+ 
+
+to generate cardinality for checking for the columns let's do
+SELECT CONCAT(
+    'SELECT ''', COLUMN_NAME, ''' AS column_name, ',
+    'COUNT(DISTINCT ', COLUMN_NAME, ') AS cardinality ',
+    'FROM databasechangelog;'
+) AS run_this
+FROM information_schema.COLUMNS
+WHERE table_schema='database_name'
+AND table_name='table_name';
+
+it will generate some queries for cardinality checking
+
+
+
+check table size of each table in database
+SELECT 
+    table_name,
+    table_rows,
+    ROUND(data_length / 1024 / 1024, 2) AS data_mb,
+    ROUND(index_length / 1024 / 1024, 2) AS index_mb,
+    ROUND((data_length + index_length) / 1024 / 1024, 2) AS total_mb
+FROM information_schema.tables
+WHERE table_schema = 'database_name'
+ORDER BY total_mb DESC;
+
+
+which tables can't be indexed : 
+| Condition            | Meaning                                |
+| -------------------- | -------------------------------------- |
+| Low cardinality      | Few unique values → useless index      |
+| Large datatype       | TEXT / LONGTEXT / BLOB → index too big |
+| Not used in queries  | Never appears in WHERE/JOIN            |
+| On very small tables | Full scan faster than index            |
+| Boolean columns      | Only 0/1 → no selectivity              |
+
+do indexing if 
+Column has many distinct values
+Column is frequently used in WHERE / JOIN
+Column is INT, BIGINT, VARCHAR small size
+Column is TIMESTAMP used for filtering
+Table is large (millions of rows)
+
+
+OPTIMIZATION OF Database
+first step is to enable performance instrumentation 
+
+UPDATE performance_schema.setup_instruments
+SET ENABLED = 'YES', TIMED = 'YES'
+WHERE NAME LIKE 'statement/sql/%';
+
+step 2
+check for top slowest queries; 
+
+SELECT *
+FROM performance_schema.events_statements_summary_by_digest
+ORDER BY AVG_TIMER_WAIT DESC
+LIMIT 10;
+
+This shows:
+The 10 slowest queries in your entire database
+The queries consuming most CPU / memory / disk
+Queries creating temporary tables
+Queries scanning millions of rows
+-> These are the queries that need optimization first
+
+step 3
+Now interpret the results
+1. SUM_ROWS_EXAMINED
+If millions → query is doing a full table scan → add indexes.
+
+2. SUM_CREATED_TMP_DISK_TABLES
+If > 0 → your ORDER BY / GROUP BY / DISTINCT is expensive → needs optimization.
+
+3. SUM_SELECT_SCAN
+High value → table scan → missing or ineffective indexes.
+
+4. SUM_NO_INDEX_USED
+If > 0 → query never uses indexes → must fix.
+
+5. DIGEST_TEXT
+This shows the structure of the slow query.
+You must tune the slowest queries first.
+
+now we can do for each slow query 
+explain <any_slow_query> 
+
+
+

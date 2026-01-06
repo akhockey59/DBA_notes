@@ -1,0 +1,325 @@
+loading big size of data on DC and then fetching it from DR
+
+so first thing we will check is 
+DC to be primary
+and super read only and read only to be off on primary
+and on secondary it should be on
+
+first we will check if the mysql shell is available
+once it is verified then we will move further
+
+
+we still don't have password for mysqlsh for the host so we will create a user which will load dump along with password which can be used on mysqlsh 
+-> Step 1: login using mysql CLI (which still works)
+mysql -u root -P 3306
+
+-> Step 2: create a dedicated admin user
+CREATE USER 'admin'@'localhost'
+IDENTIFIED WITH caching_sha2_password
+BY 'Admin@123';
+
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
+-> Step 3: test mysqlsh with admin (NOT root)
+mysqlsh admin@localhost:3306
+
+Password:
+Admin@123
+
+then you can now visit to mysql shell of 3306 now what next
+if you load directly it will refuse so some things to be done before loading the dump
+
+step:1 -> SAFE FIX (NO RESTART, NO LOCKOUT, NO HA IMPACT)
+\sql
+Step 2: Enable local_infile
+SET GLOBAL local_infile = ON;
+Verify:
+SHOW GLOBAL VARIABLES LIKE 'local_infile'; 
+it should be on
+
+then after this we have to allow trusted functions
+Temporarily allow trusted functions
+
+Run this on DC (3306):
+SET GLOBAL log_bin_trust_function_creators = ON;
+
+Verify:
+SHOW GLOBAL VARIABLES LIKE 'log_bin_trust_function_creators';
+Expected:
+ON
+
+now after this start data dump on the data center
+if everything goes fine then
+
+it will dump data on data center next is check with distaster recovery server 
+
+if some error occurs something like "SQL thread stopped because log_bin_trust_function_creators is OFF"
+now fix it 
+
+FIX STEPS (DO EXACTLY THIS)
+Step 1 — On DR (3307): allow function replay
+SET GLOBAL log_bin_trust_function_creators = ON;
+Verify:
+
+SHOW GLOBAL VARIABLES LIKE 'log_bin_trust_function_creators';
+Must be ON.
+
+Step 2 — Start only SQL thread
+START REPLICA SQL_THREAD;
+
+Step 3 — Watch it drain relay logs
+Run this every 20–30 seconds:
+SHOW REPLICA STATUS\G
+
+check again and again until ' Seconds_Behind_Source: 0 '
+
+
+after everything is done we will move further
+check the whole database table and everything
+
+
+
+let's try and add one more Disaster recovery server;
+first create a file 
+then add data folder to it
+write on my.cnf file also to it:-""""
+[mysqld]
+server-id=3
+port=3308
+
+basedir=C:/mysql/mysql-8.4.7-winx64
+datadir=C:/mysql_lab/dr2/data
+
+log-bin=mysql-bin
+relay-log=relay-bin
+
+gtid_mode=ON
+enforce_gtid_consistency=ON
+log_slave_updates=ON
+
+read_only=ON
+super_read_only=ON
+
+binlog_format=ROW
+"""""
+
+
+once this i created start from basics initialize it and run it
+"C:\mysql\mysql-8.4.7-winx64\bin\mysqld.exe" ^
+  --defaults-file=C:\mysql_lab\dr2\my.cnf ^
+  --initialize-insecure ^
+  --console
+  
+  after initialization start server;
+"C:\mysql\mysql-8.4.7-winx64\bin\mysqld.exe" ^
+  --defaults-file=C:\mysql_lab\dr2\my.cnf ^
+  --console
+  
+  after turning it on we will synchronize the data with data center using clone method
+  
+  pre check - SELECT @@server_uuid, @@gtid_mode, @@log_bin; must be on
+  go to mysql -u root -P 3308
+and then turn off super read only and read only 
+SET GLOBAL super_read_only = OFF;
+SET GLOBAL read_only = OFF;
+
+and then install clone plugin - INSTALL PLUGIN clone SONAME 'mysql_clone';
+do the same on 3306 means installing mysql clone
+
+now create a new user on 3306 
+
+CREATE USER 'clone_user'@'127.0.0.1'
+IDENTIFIED BY 'Clone@123';
+
+grant all required privileges
+GRANT BACKUP_ADMIN, CLONE_ADMIN ON *.* 
+TO 'clone_user'@'127.0.0.1';
+FLUSH PRIVILEGES;
+
+verify grants - SHOW GRANTS FOR 'clone_user'@'127.0.0.1';
+
+come back to 3308
+prepare it for clone
+STOP REPLICA;
+RESET REPLICA ALL;
+
+Run CLONE (this wipes 3308)
+before cloning do run this command -> SET GLOBAL clone_valid_donor_list = '127.0.0.1:3306';
+
+Run on 3308:
+CLONE INSTANCE FROM 'clone_user'@'127.0.0.1':3306
+IDENTIFIED BY 'Clone@123';
+
+it will wipe whole data on 3308 and copy all data of 3306 to 3308
+
+it will go on regarding the data size 
+after cloning it 
+
+SET GLOBAL server_id = 3;   -- or any UNIQUE id
+SET GLOBAL super_read_only = ON;
+SET GLOBAL read_only = ON;
+
+lock it down again 
+SET GLOBAL super_read_only = ON;
+SET GLOBAL read_only = ON;
+
+
+and then run again :-
+
+CHANGE REPLICATION SOURCE TO
+  SOURCE_HOST='127.0.0.1',
+  SOURCE_PORT=3306,
+  SOURCE_USER='repl',
+  SOURCE_PASSWORD='repl_password',
+  SOURCE_AUTO_POSITION=1;
+
+START REPLICA;
+if some error or some password error comes then
+
+STEP 1 — On 3306 (PRIMARY) create the missing user
+CREATE USER 'repl'@'localhost'
+IDENTIFIED BY 'repl_password';
+No plugin specified → MySQL will use caching_sha2_password (correct).
+
+
+STEP 2 — Grant replication privileges
+GRANT REPLICATION SLAVE, REPLICATION CLIENT
+ON *.* TO 'repl'@'localhost';
+FLUSH PRIVILEGES;
+
+
+STEP 3 — Verify users (important)
+SELECT user, host, plugin
+FROM mysql.user
+WHERE user = 'repl';
+
+
+You must see both:
+repl | %         | caching_sha2_password
+repl | localhost | caching_sha2_password
+
+now run again on 3308 
+STOP REPLICA;
+START REPLICA;
+it will be resolved
+
+Testing crash on primary branch
+close the primary node using ctrl + c
+choose one DR which we want to promote as primary lets say 3307
+open and run commands->>
+
+STOP REPLICA;
+RESET REPLICA ALL;
+SET GLOBAL super_read_only = OFF;
+SET GLOBAL read_only = OFF;
+
+now test on 3307 -> INSERT INTO dcdr_labs.t (message)
+VALUES ('failover_primary_3307');
+
+now reattach 3308 as DR cause 3307 is primary 
+run this on 3308
+----------------------------------------------------
+STOP REPLICA;
+RESET REPLICA ALL;
+
+CHANGE REPLICATION SOURCE TO
+  SOURCE_HOST = '127.0.0.1',
+  SOURCE_PORT = 3307,
+  SOURCE_USER = 'repl',
+  SOURCE_PASSWORD = 'repl_password',
+  SOURCE_AUTO_POSITION = 1,
+  GET_SOURCE_PUBLIC_KEY = 1;
+
+START REPLICA;
+
+and check replica status - SHOW REPLICA STATUS\G
+
+now if we want to restart 3306 then go to DC main directory and edit "my.cnf" and convert 
+read_only=OFF          _ read_only=ON 
+super_read_only=OFF      super_read_only=ON
+
+and then restart 3306 server using command - 
+mysqld.exe --defaults-file=C:\mysql_lab\dc\my.cnf --console
+
+and go back to console and check ASAP - SELECT @@read_only, @@super_read_only;
+once it is on then we will add it as DR to 3307 
+then we will do
+
+STOP REPLICA;
+RESET REPLICA ALL;
+CHANGE REPLICATION SOURCE TO
+  SOURCE_HOST = '127.0.0.1',
+  SOURCE_PORT = 3307,
+  SOURCE_USER = 'repl',
+  SOURCE_PASSWORD = 'repl_password',
+  SOURCE_AUTO_POSITION = 1,
+  GET_SOURCE_PUBLIC_KEY = 1;
+
+
+START REPLICA;
+SHOW REPLICA STATUS\G
+
+once it is configured then we have 3306 as dr and 3307 as DC and 3308 as dr
+
+what if we want again to promote 3306 as DC then we will do
+Step 1: Freeze writes on current primary (3307)
+On 3307:
+SET GLOBAL super_read_only = ON;
+SET GLOBAL read_only = ON;
+This guarantees no new transactions.
+Verify:
+SELECT @@read_only, @@super_read_only;
+it should show 1
+ now go back to 3306 and
+Step 3: Promote 3306 to PRIMARY (DC)
+On 3306:
+STOP REPLICA;
+RESET REPLICA ALL;
+SET GLOBAL super_read_only = OFF;
+SET GLOBAL read_only = OFF;
+Verify:
+SELECT @@read_only, @@super_read_only;
+
+Step 4: Repoint 3307 to new primary (3306)
+On 3307:
+STOP REPLICA;
+RESET REPLICA ALL;
+
+CHANGE REPLICATION SOURCE TO
+  SOURCE_HOST = '127.0.0.1',
+  SOURCE_PORT = 3306,
+  SOURCE_USER = 'repl',
+  SOURCE_PASSWORD = 'repl_password',
+  SOURCE_AUTO_POSITION = 1,
+  GET_SOURCE_PUBLIC_KEY = 1;
+START REPLICA;
+Lock it down:
+SET GLOBAL super_read_only = ON;
+SET GLOBAL read_only = ON;
+
+
+Step 5: Repoint 3308 to new primary (3306)
+On 3308 (same thing):
+STOP REPLICA;
+RESET REPLICA ALL;
+CHANGE REPLICATION SOURCE TO
+  SOURCE_HOST = '127.0.0.1',
+  SOURCE_PORT = 3306,
+  SOURCE_USER = 'repl',
+  SOURCE_PASSWORD = 'repl_password',
+  SOURCE_AUTO_POSITION = 1,
+  GET_SOURCE_PUBLIC_KEY = 1;
+START REPLICA;
+SET GLOBAL super_read_only = ON;
+SET GLOBAL read_only = ON;
+
+
+Step 6: Final verification (ALL nodes)
+On 3306
+SHOW REPLICA STATUS\G
+Should return Empty set (primary doesn’t replicate).
+Test write:
+INSERT INTO dcdr_labs.t (msg) VALUES ('3306_is_primary_again');
+
+and thats how it will be promoted back as DC and others as DR

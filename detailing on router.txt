@@ -1,0 +1,73 @@
+| Category                 | Parameter                                             | What it does                               | Why it’s used / Notes                                            |
+| ------------------------ | ----------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------- |
+| **Character set**        | `character-set-server=utf8mb4`                        | Default charset for DB/tables              | Full Unicode support (emoji, multi-language). Best practice      |
+|                          | `collation-server=utf8mb4_unicode_ci`                 | String comparison & sorting                | Case-insensitive, Unicode-correct (slightly slower but accurate) |
+| **Table names**          | `lower_case_table_names=1`                            | Makes table names case-insensitive         | Required on Windows / inconsistent app casing                    |
+| **Connections**          | `max_connections=30000` can be 3000                   | Max client connections                     | Very high; risky without pooling. Each connection uses memory    |
+| **Stored routines**      | `log_bin_trust_function_creators=1`                   | Allows non-SUPER users to create functions | Skips binlog safety checks; useful for legacy/ORM apps           |
+| **Replication ID**       | `server_id=1`                                         | Unique server identifier                   | Mandatory for replication, GTID, clustering                      |
+| **Binary logging**       | `log_bin`                                             | Enables binary logging                     | Required for replication & PITR(Point in time recovery)          |
+|                          | `binlog_checksum=NONE`                                | Disables binlog checksums                  | Saves CPU; less corruption protection                            |
+|                          | `binlog_expire_logs_seconds=604800`                   | Auto-delete binlogs after 7 days           | Safer DR window vs 1 day                                         |
+| **GTID**                 | `gtid_mode=ON`                                        | Enables GTID                               | Clean failover & replication management                          |
+|                          | `enforce_gtid_consistency=ON`                         | Blocks unsafe statements                   | Required for GTID correctness                                    |
+| **Replica logging**      | `log_slave_updates=ON`                                | Replica re-logs transactions               | Needed for cascading replication                                 |
+| **Replication metadata** | `master_info_repository=TABLE`                        | Stores master info in tables               | Crash-safe replication                                           |
+|                          | `relay_log_info_repository=TABLE`                     | Stores relay log position in tables        | Crash-safe & recommended                                         |
+| **Group Replication**    | `transaction_write_set_extraction=XXHASH64`           | Tracks row changes per trx                 | Conflict detection (fast hashing)                                |
+| **OS security**          | `user=mysql`                                          | Runs mysqld as mysql user                  | Security best practice                                           |
+| **Networking**           | `skip-host-cache`                                     | Disables DNS cache                         | Avoids DNS-related delays                                        |
+|                          | `skip-name-resolve`                                   | Uses IP instead of hostnames               | Faster auth; users must use IPs                                  |
+|                          | `bind-address=0.0.0.0`                                | Listen on all interfaces                   | Required for replication/routers                                 |
+| **Authentication**       | `default_authentication_plugin=mysql_native_password` | Legacy auth method                         | Needed for old clients (deprecated)                              |
+| **Slow queries**         | `slow_query_log=ON`                                   | Enables slow query logging                 | Performance tuning                                               |
+|                          | `slow_query_log_file=...`                             | File path for slow logs                    | Ensure disk writable                                             |
+|                          | `long_query_time=2`                                   | Logs queries > 2s                          | Good production threshold                                        |
+| **InnoDB memory**        | `innodb_buffer_pool_size=64G`                         | Main data/index cache                      | Power-of-two, good instance alignment                            |
+|                          | `innodb_buffer_pool_instances=8`                      | Splits buffer pool                         | Reduces contention                                               |
+| **Redo logs**            | `innodb_redo_log_capacity=8G`                         | Total redo log size                        | Better write throughput                                          |
+|                          | `innodb_log_files_in_group=3`                         | Old redo config                            | Obsolete in MySQL 8.0.30+                                        |
+| **Disk IO**              | `innodb_flush_method=O_DIRECT`                        | Bypasses OS cache                          | Prevents double buffering                                        |
+|                          | `innodb_flush_log_at_trx_commit=2`                    | Flush every second                         | Faster writes, small durability risk                             |
+| **IO tuning**            | `innodb_io_capacity=6000`                             | Normal background IO rate                  | Steady flushing                                                  |
+|                          | `innodb_io_capacity_max=12000`                        | Max IO under pressure                      | Prevents sudden stalls                                           |
+| **Threads**              | `innodb_read_io_threads=16`                           | Read IO threads                            | Good for SSD/NVMe                                                |
+|                          | `innodb_write_io_threads=16`                          | Write IO threads                           | High concurrency                                                 |
+|                          | `innodb_purge_threads=8`                              | Cleanup old row versions                   | Helps heavy UPDATE/DELETE                                        |
+| **Relay logs**           | `max_relay_log_size=200M`                             | Max relay log file size                    | Faster crash recovery                                             |
+| **Time & logs**          | `default_time_zone='Africa/Kampala'`                  | Default session timezone                   | Requires TZ tables                                               |
+|                          | `log_timestamps=SYSTEM`                               | Log timestamps use system time             | Easier correlation                                               |
+
+
+
+-> IDEAL STATE
+
+innodb_buffer_pool_size       = 64G 60 to 75 % of total RAM
+innodb_buffer_pool_instances  = 8
+
+innodb_redo_log_capacity      = 8G
+innodb_flush_log_at_trx_commit= 2
+
+innodb_io_capacity            = 6000
+innodb_io_capacity_max        = 12000
+
+innodb_read_io_threads        = 16
+innodb_write_io_threads       = 16
+innodb_purge_threads          = 8
+
+max_connections               = 3000 not 30000
+
+binlog_format                 = ROW
+binlog_expire_logs_seconds    = 604800
+
+
+KeepAlive - Keep Alive is a periodic liveness-detection mechanism in which one endpoint sends heartbeat messages at fixed intervals to verify that a peer,
+connection, or service is still operational. Failure to receive heartbeats within a defined timeout triggers failure handling logic (e.g., connection teardown,
+role change, or failover).
+
+VRRP - VRRP is a network-layer redundancy protocol that allows multiple routers or hosts to share a single virtual IP address (VIP) and guarantees that exactly one node owns 
+it at any time. Its purpose is fast, deterministic failover of an IP endpoint.(virtual router redundancy protocol)
+
+VIP (Virtual IP)
+A VIP (Virtual IP address) is an IP address that is not permanently bound to a single physical or virtual network interface, but can be dynamically assigned and
+reassigned between multiple nodes.

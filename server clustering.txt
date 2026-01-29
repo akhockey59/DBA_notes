@@ -1,0 +1,121 @@
+Working on real server 
+doing clustering from start
+
+access SSH root then 
+first check if sql is there or not
+then 
+Update package Index -> apt update
+Install Mysql Server -> apt install mysql-server -y
+Check if Mysql service is working -> systemctl status mysql
+verify it first 
+mysql --version
+
+🔵 PHASE 2: Fix root authentication (critical)
+sudo mysql -> go in the root MySql with complete access
+check for root plugins 
+SELECT user, host, plugin FROM mysql.user WHERE user='root';
+
+if plugin = auth_socket (default on Ubuntu)
+
+Convert it (recommended for mysqlsh & clustering):
+ALTER USER 'root'@'localhost'
+IDENTIFIED WITH mysql_native_password BY 'Root@1234';
+FLUSH PRIVILEGES;
+EXIT;
+ and then verify it using command 
+ mysql -u root -p and password will be asked then insert the password you set 
+ 
+ then exit it
+🔵 PHASE 3: Install MySQL Shell (JS support) -> main phase for setting up mysqlsh so that we can do clustering
+1 Download mysqlsh (same version everywhere)
+
+cd /tmp
+wget https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell_8.0.44-1ubuntu22.04_amd64.deb
+
+2️ Install
+dpkg -i mysql-shell_8.0.44-1ubuntu22.04_amd64.deb
+apt -f install -y
+
+3 Clear shell cache 
+hash -r
+
+4 Now verify 
+which mysqlsh
+mysqlsh --version
+
+output can be -> /usr/bin/mysqlsh
+MySQL Shell 8.0.44
+
+now launch mysqlsh and check if it has js activated or not
+once verified exit it and come back to root user 
+🔵 PHASE 4: MySQL network & identity config (VERY IMPORTANT)
+
+Edit config:
+nano /etc/mysql/mysql.conf.d/mysqld.cnf
+
+make these changes in the file 
+bind-address = 0.0.0.0
+mysqlx-bind-address = 0.0.0.0
+
+add 
+report_host = 192.168.xx.x [ip address]
+save and exit then 
+Restart MySQL:
+
+systemctl restart mysql
+systemctl status mysql
+
+
+Verify:
+
+mysql -u root -p
+SHOW VARIABLES LIKE 'report_host';
+EXIT;
+
+
+🔵 PHASE 5: Create cluster admin user
+mysql -u root -p 
+add password access
+now create user which can create cluster on the server
+
+CREATE USER IF NOT EXISTS 'cluster_admin'@'%' IDENTIFIED BY 'Cluster@123';
+GRANT ALL PRIVILEGES ON *.* TO 'cluster_admin'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EXIT;
+
+
+lets prepare Instance for clustering
+Start MySQL Shell:
+mysqlsh
+
+
+Connect:
+\connect cluster_admin@localhost
+
+
+Run:
+dba.configureInstance()
+then check 
+dba.checkInstanceConfiguration()
+
+if status ok then we can move forward for clustering
+
+🔵 PHASE 7: Create the cluster (PRIMARY)
+Now the only place we do this:
+var cluster = dba.createCluster("myCluster")
+cluster.status()
+
+now repeat this step on server 2 and server 3 till step 6 the only change will be report_host = ip of the server being used as secondary
+ and tertiary server
+ 
+on step 7 we will go back to primary server and run command 
+
+cluster.addInstance('cluster_admin@ip address of server')
+cluster.status()
+
+for 3rd seerver as well
+cluster.addInstance('cluster_admin@ip address of server')
+cluster.status()
+
+
+
